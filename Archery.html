@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Shadow Druk Archer — Prototype (Level 1) with Start</title>
+<style>
+  html,body { height:100%; margin:0; background:#111; font-family:system-ui, Arial; color:#fff; }
+  #gameCanvas { display:block; margin:0 auto; background: linear-gradient(#87CEEB,#FFD7A6 50%, #6AA84F 100%); box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+  .ui {
+    width:800px; margin: 12px auto; display:flex; justify-content:space-between; align-items:center;
+  }
+  .ui .left, .ui .right { background:rgba(0,0,0,0.25); padding:6px 10px; border-radius:6px; }
+  .hint { width:800px; margin:6px auto; text-align:center; font-size:13px; color:#e9e9e9; opacity:0.9; }
+  button { background:#222; color:#fff; border:1px solid #333; padding:8px 12px; border-radius:6px; cursor:pointer; }
+  button:hover { filter:brightness(1.2); }
+
+  /* Start screen overlay */
+  #startScreen {
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6));
+    z-index:1000;
+    flex-direction:column;
+    gap:14px;
+  }
+  #startCard {
+    width:520px; max-width:90%; background: linear-gradient(180deg,#0b1b37,#081024); border-radius:14px;
+    padding:28px; text-align:center; box-shadow:0 12px 40px rgba(0,0,0,0.6);
+  }
+  #startCard h1 { margin:0 0 10px 0; font-size:28px; }
+  #startCard p { margin:0 0 18px 0; color:#cfdff6; font-size:14px; }
+  .small { font-size:13px; color:#a8bedf; }
+</style>
+</head>
+<body>
+  <div class="ui">
+    <div class="left">
+      <strong id="score">Score: 0</strong> &nbsp; <span id="level">Level: 1</span>
+    </div>
+    <div class="right">
+      <span id="health">Health: 5</span> &nbsp; <button id="restartBtn">Restart (R)</button>
+    </div>
+  </div>
+
+  <canvas id="gameCanvas" width="800" height="420" tabindex="0"></canvas>
+
+  <div class="hint">Controls: ← → to move / ↑ jump / hold <strong>Space</strong> to charge & release to shoot. Charged arrows can break bullets.</div>
+
+  <!-- Start screen overlay -->
+  <div id="startScreen">
+    <div id="startCard">
+      <h1>Shadow Druk Archer</h1>
+      <p>Protect the kingdom — move with ← →, jump ↑, hold Space to charge & release to fire a powerful arrow.</p>
+      <div style="display:flex;gap:12px;justify-content:center;">
+        <button id="startBtn">Start Game</button>
+        <button id="howBtn">How to Play</button>
+      </div>
+      <p class="small" style="margin-top:12px;">Tip: Click the canvas if keyboard input doesn't work. Press R to restart during play.</p>
+    </div>
+  </div>
+
+<script>
+/* Shadow Druk Archer — Prototype with Start Button
+   - Save as index.html and open in browser
+   - Click Start to begin
+*/
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const W = canvas.width, H = canvas.height;
+let lastTime = 0;
+let keys = {};
+let score = 0;
+let level = 1;
+let gameOver = false;
+let gameStarted = false; // <-- only true after Start button
+
+const uiScore = document.getElementById('score');
+const uiHealth = document.getElementById('health');
+const uiLevel = document.getElementById('level');
+document.getElementById('restartBtn').addEventListener('click', ()=>{ if(!gameStarted) return; resetGame(); });
+window.addEventListener('keydown', (e)=>{ keys[e.code] = true; if (e.code==='KeyR' && gameStarted) resetGame(); });
+window.addEventListener('keyup', (e)=>{ keys[e.code] = false; });
+
+// Make canvas focusable & focus on click
+canvas.addEventListener('click', ()=> canvas.focus());
+
+// Start screen buttons
+const startScreen = document.getElementById('startScreen');
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  startScreen.style.display = 'none';
+  gameStarted = true;
+  resetGame();      // initialize game state
+  canvas.focus();   // ensure keyboard works
+  lastTime = 0;
+  requestAnimationFrame(update);
+});
+document.getElementById('howBtn').addEventListener('click', ()=>{
+  alert('Controls:\\n←/A = left, →/D = right, ↑/W = jump, Space = hold to charge + release to shoot. Press R to restart.');
+});
+
+// Simple world ground
+const groundY = H - 60;
+
+// Player
+const player = {
+  x: 80, y: groundY - 60, w: 34, h: 60,
+  vx: 0, vy: 0,
+  speed: 2.6,
+  jumpPower: 9.4,
+  onGround: true,
+  facing: 1,
+  health: 5,
+  charge: 0,
+  maxCharge: 60,
+  canShoot: true,
+  shootCooldown: 0,
+};
+
+// Arrows (player projectiles)
+const arrows = [];
+
+// Enemies & bullets
+const enemies = [];
+const bullets = [];
+
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function rectsIntersect(a,b){
+  return !(a.x + a.w < b.x || a.x > b.x + b.w || a.y + a.h < b.y || a.y > b.y + b.h);
+}
+
+function spawnEnemy(x, y){
+  const e = {
+    x, y,
+    w: 36, h: 56,
+    vx: -0.6 - Math.random()*0.6,
+    speed: 0.6 + level*0.05,
+    dir: -1,
+    health: 2 + Math.floor(level/2),
+    reload: 120 - level*6 + Math.floor(Math.random()*60),
+    reloadTimer: 40 + Math.floor(Math.random()*60),
+    type: 'rifle'
+  };
+  enemies.push(e);
+}
+
+function initWave(){
+  enemies.length = 0;
+  bullets.length = 0;
+  arrows.length = 0;
+  const count = 3 + level;
+  for(let i=0;i<count;i++){
+    const px = W + 60 + i*180 + Math.random()*120;
+    const py = groundY - 56;
+    spawnEnemy(px, py);
+  }
+}
+
+function resetGame(){
+  // keep gameStarted true
+  score = 0;
+  level = 1;
+  gameOver = false;
+  player.x = 80; player.y = groundY - player.h; player.vx = 0; player.vy = 0;
+  player.health = 5; player.charge = 0; player.canShoot = true; player.shootCooldown = 0;
+  uiHealth.textContent = 'Health: ' + player.health;
+  uiScore.textContent = 'Score: ' + score;
+  uiLevel.textContent = 'Level: ' + level;
+  initWave();
+}
+
+function playerShoot(power){
+  const speed = 6 + power*6;
+  const size = 6 + Math.floor(power*10);
+  const dmg = 1 + Math.round(power*2);
+  const dir = player.facing;
+  const arrow = {
+    x: player.x + (dir>0 ? player.w : -size),
+    y: player.y + player.h*0.4,
+    w: size,
+    h: 4,
+    vx: speed*dir,
+    vy: 0,
+    power: power,
+    dmg: dmg
+  };
+  arrows.push(arrow);
+  player.shootCooldown = 12;
+}
+
+function enemyShoot(e){
+  const bulletSpeed = 4 + Math.min(4, level*0.2);
+  const startX = e.x + e.w/2;
+  const startY = e.y + e.h/2 - 6;
+  const dx = (player.x + player.w/2) - startX;
+  const dy = (player.y + player.h*0.45) - startY;
+  const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+  const vx = (dx / dist) * bulletSpeed;
+  const vy = (dy / dist) * bulletSpeed;
+  bullets.push({ x:startX, y:startY, r:5, vx, vy, fromEnemy:true });
+}
+
+function update(ts){
+  if(!gameStarted) return; // safety
+  if(!lastTime) lastTime = ts;
+  const dt = Math.min(40, ts - lastTime);
+  lastTime = ts;
+
+  handleInput();
+
+  // Physics
+  player.vx *= 0.92;
+  if(Math.abs(player.vx) < 0.05) player.vx = 0;
+
+  player.x += player.vx;
+  player.vy += 0.6;
+  player.y += player.vy;
+
+  if(player.y + player.h >= groundY){
+    player.y = groundY - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  } else player.onGround = false;
+
+  player.x = clamp(player.x, 8, W - player.w - 8);
+
+  if(player.shootCooldown>0) player.shootCooldown--;
+
+  if(keys['Space'] || keys['KeyZ']) {
+    player.charge = clamp(player.charge + 1, 0, player.maxCharge);
+  } else {
+    if(player.charge > 0 && player.canShoot && player.shootCooldown <= 0){
+      const p = player.charge / player.maxCharge;
+      playerShoot(p);
+    }
+    player.charge = 0;
+  }
+
+  if(keys['ArrowLeft'] || keys['KeyA']){ player.vx = -player.speed; player.facing = -1; }
+  if(keys['ArrowRight'] || keys['KeyD']){ player.vx = player.speed; player.facing = 1; }
+  if((keys['ArrowUp'] || keys['KeyW']) && player.onGround){ player.vy = -player.jumpPower; player.onGround = false; }
+
+  // Arrows
+  for(let i=arrows.length-1;i>=0;i--){
+    const a = arrows[i];
+    a.x += a.vx;
+    a.y += a.vy;
+    if(a.x < -40 || a.x > W+40 || a.y < -40 || a.y > H+40) arrows.splice(i,1);
+  }
+
+  // Enemies
+  for(let i=enemies.length-1;i>=0;i--){
+    const e = enemies[i];
+    e.x += e.vx * (1 + level*0.02);
+    e.dir = (player.x < e.x) ? -1 : 1;
+    e.reloadTimer--;
+    if(e.reloadTimer <= 0){
+      enemyShoot(e);
+      e.reloadTimer = clamp(e.reload + Math.floor(Math.random()*20) - level*2, 40, 240);
+    }
+    if(e.x + e.w < -120) enemies.splice(i,1);
+  }
+
+  // Bullets
+  for(let i=bullets.length-1;i>=0;i--){
+    const b = bullets[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    b.vy += 0.02;
+    if(b.x < -80 || b.x > W+80 || b.y > H+80 || b.y < -80) bullets.splice(i,1);
+  }
+
+  // Collisions arrows vs enemies
+  for(let ai=arrows.length-1; ai>=0; ai--){
+    const a = arrows[ai];
+    for(let ei=enemies.length-1; ei>=0; ei--){
+      const e = enemies[ei];
+      const ar = { x: a.x, y: a.y-4, w: a.w, h: a.h };
+      const er = { x: e.x, y: e.y, w: e.w, h: e.h };
+      if(rectsIntersect(ar, er)){
+        e.health -= a.dmg;
+        arrows.splice(ai,1);
+        if(e.health <= 0){
+          enemies.splice(ei,1);
+          score += 10;
+          uiScore.textContent = 'Score: ' + score;
+        }
+        break;
+      }
+    }
+  }
+
+  // Collisions bullets vs player
+  for(let bi=bullets.length-1; bi>=0; bi--){
+    const b = bullets[bi];
+    const br = { x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2 };
+    const pr = { x:player.x, y:player.y, w:player.w, h:player.h };
+    if(rectsIntersect(br, pr)){
+      bullets.splice(bi,1);
+      player.health -= 1;
+      uiHealth.textContent = 'Health: ' + player.health;
+      player.vx = (b.vx > 0) ? -3 : 3;
+      if(player.health <= 0) gameOver = true;
+    }
+  }
+
+  // Collisions arrows vs bullets (charged arrows can break bullets)
+  for(let ai=arrows.length-1; ai>=0; ai--){
+    const a = arrows[ai];
+    for(let bi=bullets.length-1; bi>=0; bi--){
+      const b = bullets[bi];
+      const ar = { x: a.x, y: a.y-4, w: a.w, h: a.h };
+      const br = { x: b.x-b.r, y: b.y-b.r, w: b.r*2, h: b.r*2 };
+      if(rectsIntersect(ar, br)){
+        if(a.power >= 0.4){
+          bullets.splice(bi,1);
+          a.dmg = Math.max(1, a.dmg - 1);
+          a.power *= 0.55;
+        } else {
+          arrows.splice(ai,1);
+        }
+        break;
+      }
+    }
+  }
+
+  if(enemies.length === 0 && !gameOver){
+    level++;
+    uiLevel.textContent = 'Level: ' + level;
+    player.health = Math.min(8, player.health + 1);
+    uiHealth.textContent = 'Health: ' + player.health;
+    initWave();
+  }
+
+  if(gameOver){
+    // stop updates; final overlay rendered in renderGameOver
+  }
+
+  uiScore.textContent = 'Score: ' + score;
+  uiHealth.textContent = 'Health: ' + player.health;
+
+  render();
+
+  if(!gameOver) requestAnimationFrame(update);
+  else renderGameOver();
+}
+
+function render(){
+  // background gradient
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, '#0b3d91');
+  g.addColorStop(0.45, '#67b6ff');
+  g.addColorStop(0.75, '#ffd1a6');
+  g.addColorStop(1, '#2b6b2b');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+
+  // mountains
+  ctx.save(); ctx.globalAlpha = 0.12; ctx.fillStyle = '#000';
+  drawMountain(50, 200, 220);
+  drawMountain(220, 180, 260);
+  drawMountain(420, 200, 220);
+  drawMountain(610, 160, 260);
+  ctx.restore();
+
+  // ground
+  ctx.fillStyle = '#0f2a11';
+  ctx.fillRect(0, groundY, W, H-groundY);
+
+  // ground lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for(let i=0;i<20;i++){
+    ctx.beginPath();
+    ctx.moveTo((i*120 + (Date.now()*0.02)%120) % W, groundY + 6);
+    ctx.lineTo((i*120 + 40 + (Date.now()*0.02)%120) % W, groundY + 6);
+    ctx.stroke();
+  }
+
+  drawPlayer(player);
+
+  for(const a of arrows){
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.rect(0, -a.h/2, a.w, a.h);
+    ctx.fill();
+    ctx.beginPath();
+    if(a.vx > 0){
+      ctx.moveTo(a.w, -a.h);
+      ctx.lineTo(a.w + a.h, 0);
+      ctx.lineTo(a.w, a.h);
+    } else {
+      ctx.moveTo(0, -a.h);
+      ctx.lineTo(-a.h, 0);
+      ctx.lineTo(0, a.h);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  for(const e of enemies) drawEnemy(e);
+
+  for(const b of bullets){
+    ctx.beginPath();
+    ctx.fillStyle = '#000';
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // charge bar
+  const cx = player.x + player.w/2 - 30;
+  const cy = player.y - 12;
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.fillRect(cx-2, cy-2, 64, 8);
+  const pw = (player.charge / player.maxCharge) * 60;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(cx, cy, pw, 6);
+
+  // health icons
+  ctx.fillStyle = '#000';
+  for(let i=0;i<player.health;i++){
+    ctx.beginPath();
+    const hx = 14 + i*18;
+    ctx.arc(hx, 22, 6, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.font = '14px system-ui';
+  ctx.fillText('Shadow Druk Archer — Level ' + level, 12, 40);
+}
+
+function renderGameOver(){
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '40px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Game Over', W/2, H/2 - 10);
+  ctx.font = '18px system-ui';
+  ctx.fillText('Score: ' + score + ' — Press R or Restart button', W/2, H/2 + 22);
+  ctx.textAlign = 'left';
+}
+
+function drawPlayer(p){
+  ctx.save();
+  ctx.translate(p.x + p.w/2, p.y + p.h/2);
+  ctx.scale(p.facing, 1);
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.rect(-p.w/2, -p.h/2 + 6, p.w, p.h - 12);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0, -p.h/2 + 6, 9, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.rect(-p.w/2 - 6, -4, 10, 6);
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(p.w/2 - 10, -8);
+  ctx.quadraticCurveTo(p.w/2 + 12, 0, p.w/2 - 10, 8);
+  ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-p.w/2 - 8, -p.h/2 + 18, 8, 18);
+  ctx.restore();
+}
+
+function drawEnemy(e){
+  ctx.save();
+  ctx.translate(e.x + e.w/2, e.y + e.h/2);
+  ctx.scale(e.dir, 1);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-e.w/2, -e.h/2 + 6, e.w, e.h - 12);
+  ctx.beginPath();
+  ctx.arc(0, -e.h/2 + 6, 8, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillRect(e.w/4, -6, e.w*0.9, 6);
+  ctx.fillRect(e.w*1.05, -4, 12, 3);
+  ctx.fillRect(-e.w/4, e.h/2 - 8, 8, 6);
+  ctx.fillRect(e.w/8, e.h/2 - 8, 8, 6);
+  ctx.restore();
+}
+
+function drawMountain(x, top, width){
+  ctx.beginPath();
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x + width*0.5, groundY - top);
+  ctx.lineTo(x + width, groundY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function handleInput(){
+  // nothing extra here; input read in update
+}
+
+// Note: We don't start the loop automatically. The Start button does.
+</script>
+</body>
+</html>

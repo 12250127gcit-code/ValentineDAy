@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Be My Valentine?</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+<style>
+body{
+    margin:0;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:linear-gradient(135deg,#ffafbd,#ffc3a0);
+    font-family:'Poppins',sans-serif;
+    overflow:hidden;
+}
+
+.glass-card{
+    background:rgba(255,255,255,0.9);
+    backdrop-filter:blur(12px);
+    padding:3rem;
+    border-radius:40px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.15);
+    text-align:center;
+    width:90%;
+    max-width:400px;
+    animation:float 3s ease-in-out infinite;
+}
+
+@keyframes float{
+    0%,100%{transform:translateY(0);}
+    50%{transform:translateY(-12px);}
+}
+
+#valentine-gif{
+    width:180px;
+    height:180px;
+    object-fit:contain;
+    margin-bottom:20px;
+    transition:opacity .6s ease;
+}
+
+.fade-out{opacity:0;}
+.fade-in{opacity:1;}
+
+h1{
+    font-family:'Pacifico',cursive;
+    color:#c9184a;
+    font-size:2rem;
+    margin-bottom:25px;
+}
+
+.btn-group{
+    display:flex;
+    justify-content:center;
+    gap:25px;
+    position:relative;
+    height:60px;
+}
+
+button{
+    padding:15px 35px;
+    font-size:1.1rem;
+    font-weight:600;
+    border:none;
+    border-radius:50px;
+    cursor:pointer;
+}
+
+@keyframes heartbeat{
+    0%{transform:scale(1);}
+    30%{transform:scale(1.12);}
+    50%{transform:scale(1);}
+    70%{transform:scale(1.15);}
+    100%{transform:scale(1);}
+}
+
+#yesBtn{
+    background:#ff4d6d;
+    color:#fff;
+    box-shadow:0 10px 20px rgba(255,77,109,.4);
+    animation:heartbeat 1.4s infinite;
+}
+
+#noBtn{
+    background:#fff;
+    color:#c9184a;
+    border:2px solid #ffb3c1;
+    position:absolute;
+}
+
+.success-text{
+    margin-top:18px;
+    font-size:1.4rem;
+    color:#c9184a;
+    font-weight:600;
+}
+</style>
+</head>
+
+<body>
+
+<div class="glass-card">
+<div id="content">
+
+<img id="valentine-gif"
+src="https://media.giphy.com/media/MDJ9IbxxvDUQM/giphy.gif"
+onerror="this.src='https://via.placeholder.com/180?text=🐰'">
+
+<h1 id="titleText">Will you be my valentine partner?</h1>
+
+<div class="btn-group">
+<button id="yesBtn">Yes!</button>
+<button id="noBtn">No</button>
+</div>
+
+</div>
+</div>
+
+<audio id="music" loop>
+<source src="https://cdn.pixabay.com/audio/2023/03/27/audio_5bdb7b5c4c.mp3">
+</audio>
+
+<script>
+const noBtn=document.getElementById("noBtn");
+const yesBtn=document.getElementById("yesBtn");
+const gif=document.getElementById("valentine-gif");
+const title=document.getElementById("titleText");
+const content=document.getElementById("content");
+const music=document.getElementById("music");
+
+const noTexts=[
+ "Hey! 😅",
+ "Still trying?",
+ "Nice try 😏",
+ "Just click YES 💕",
+ "Destiny says yes 😈"
+];
+
+function moveNo(){
+ const pad=20;
+ const x=Math.random()*(window.innerWidth-noBtn.offsetWidth-pad);
+ const y=Math.random()*(window.innerHeight-noBtn.offsetHeight-pad);
+ noBtn.style.position="fixed";
+ noBtn.style.left=`${x}px`;
+ noBtn.style.top=`${y}px`;
+ title.innerText=noTexts[Math.floor(Math.random()*noTexts.length)];
+}
+
+["mouseover","mousedown","click","touchstart"].forEach(e=>{
+ noBtn.addEventListener(e,ev=>{
+  ev.preventDefault();
+  moveNo();
+ });
+});
+
+yesBtn.addEventListener("click",()=>{
+ music.play();
+
+ gif.classList.add("fade-out");
+ setTimeout(()=>{
+  gif.src="https://media.giphy.com/media/3oriO0OEd9QIDdllqo/giphy.gif";
+  gif.classList.remove("fade-out");
+  gif.classList.add("fade-in");
+ },500);
+
+ confetti({particleCount:200,spread:90,origin:{y:.6}});
+
+ title.innerHTML="Yay! You are mine now ❤️";
+
+ yesBtn.style.display="none";
+ noBtn.style.display="none";
+
+ const p=document.createElement("p");
+ p.className="success-text";
+ p.innerHTML="I knew you’d choose me 😉";
+ content.appendChild(p);
+});
+</script>
+
+</body>
+</html>
